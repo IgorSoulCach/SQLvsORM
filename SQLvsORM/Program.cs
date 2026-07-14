@@ -5,9 +5,6 @@ using System.ComponentModel.DataAnnotations;
 using System.Data;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
-using Microsoft.EntityFrameworkCore;
-using System.ComponentModel.DataAnnotations;
-using System.ComponentModel.DataAnnotations.Schema;
 using ConsoleTables;
 using ClosedXML.Excel;
 using Microsoft.EntityFrameworkCore.Metadata.Internal;
@@ -25,7 +22,6 @@ public class Game
     public string? description { get; set; }
     public decimal? base_price { get; set; }
 
-    // Навигационные свойства
     public ICollection<AttributeText> AttributeTexts { get; set; }
     public ICollection<AttributeNumber> AttributeNumbers { get; set; }
     public ICollection<AttributeBoolean> AttributeBooleans { get; set; }
@@ -158,7 +154,6 @@ class GameDatabaseSearch
                 .Include(g => g.AttributeDates)
                 .ToList();
 
-            // Собираем все уникальные имена атрибутов
             var allTextAttrs = games.SelectMany(g => g.AttributeTexts ?? new List<AttributeText>())
                 .Select(a => a.attribute_name).Distinct().OrderBy(n => n).ToList();
             var allNumberAttrs = games.SelectMany(g => g.AttributeNumbers ?? new List<AttributeNumber>())
@@ -174,7 +169,6 @@ class GameDatabaseSearch
 
                 int col = 1;
 
-                // Базовые колонки
                 worksheet.Cell(1, col++).Value = "ID";
                 worksheet.Cell(1, col++).Value = "Title";
                 worksheet.Cell(1, col++).Value = "Release Date";
@@ -182,7 +176,6 @@ class GameDatabaseSearch
                 worksheet.Cell(1, col++).Value = "Publisher";
                 worksheet.Cell(1, col++).Value = "Price";
 
-                // Заголовки атрибутов
                 int startTextCol = col;
                 foreach (var attr in allTextAttrs)
                     worksheet.Cell(1, col++).Value = attr;
@@ -277,16 +270,38 @@ class GameDatabaseSearch
                     continue;
                 }
 
-                Console.Write("Введите тип поиска (1 - Equals, 2 - NotEquals): ");
+                Console.Write("Введите тип поиска (1 - Equals, 2 - NotEquals, 3 - GreaterThan, 4 - LessThan, 5 - Between, 6 - Contains, 7 - In, 8 - Before, 9 - After ): ");
                 string searchType = Console.ReadLine()?.Trim();
 
-                if (string.IsNullOrEmpty(searchType) || ((searchType != "1") && (searchType != "2")))
+                if (string.IsNullOrEmpty(searchType) || ((searchType != "1") && (searchType != "2") && (searchType != "3") && (searchType != "4") && (searchType != "5") && (searchType != "6") && (searchType != "7") && (searchType != "8") && (searchType != "9")))
                 {
                     Console.WriteLine("Пожалуйста выберите тип поиска!");
                     continue;
                 }
+                string attributeValue2 = "";
+                if  (searchType == "5")
+                {
+                    Console.Write("\nВведите второе имя атрибута: ");
+                    attributeValue2 = Console.ReadLine()?.Trim();
+                        if (string.IsNullOrEmpty(attributeValue2))
+                        {
+                            Console.WriteLine("Значение атрибута не может быть пустым!");
+                            continue;
+                        }
+                    try 
+                    {
+                        if (Convert.ToInt32(attributeValue) > Convert.ToInt32(attributeValue2))
+                        { }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine("Пожалуйста введите корректные значения атрибутов!");
+                        continue;
+                    }
+                    
+                }
 
-                SearchGames(attributeName, attributeValue, searchType);
+                SearchGames(attributeName, attributeValue, attributeValue2, searchType);
             }
             catch (Exception ex)
             {
@@ -295,7 +310,7 @@ class GameDatabaseSearch
         }
     }
 
-    static void SearchGames(string attributeName, string attributeValue, string searchType)
+    static void SearchGames(string attributeName, string attributeValue, string attributeValue2, string searchType)
     {
         string sqlQueryEquals = @"
             SELECT DISTINCT 
@@ -345,23 +360,164 @@ class GameDatabaseSearch
                 CAST(at_date.attribute_value AS TEXT) != @attrValue
             ORDER BY g.title";
 
+        string sqlQueryGreaterThan = @"
+            SELECT DISTINCT 
+                g.game_id,
+                g.title,
+                g.release_date,
+                g.developer,
+                g.publisher,
+                g.base_price
+            FROM Game g
+            INNER JOIN AttributeNumber at_num ON g.game_id = at_num.game_id 
+                AND at_num.attribute_name = @attrName
+            WHERE 
+                at_num.attribute_value > CAST(@attrValue AS DECIMAL)
+            ORDER BY g.title";
+
+        string sqlQueryLessThan = @"
+            SELECT DISTINCT 
+                g.game_id,
+                g.title,
+                g.release_date,
+                g.developer,
+                g.publisher,
+                g.base_price
+            FROM Game g
+            INNER JOIN AttributeNumber at_num ON g.game_id = at_num.game_id 
+                AND at_num.attribute_name = @attrName
+            WHERE 
+                at_num.attribute_value > CAST(@attrValue AS DECIMAL)
+            ORDER BY g.title";
+
+        string sqlQueryContains = @"SELECT DISTINCT 
+                g.game_id,
+                g.title,
+                g.release_date,
+                g.developer,
+                g.publisher,
+                g.base_price
+            FROM Game g
+            INNER JOIN AttributeText at_text ON g.game_id = at_text.game_id 
+                AND at_text.attribute_name = @attrName
+            WHERE 
+                at_text.attribute_value LIKE '%' || @attrValue || '%'
+            ORDER BY g.title";
+
+        string sqlQueryIn = @"SELECT DISTINCT 
+                g.game_id,
+                g.title,
+                g.release_date,
+                g.developer,
+                g.publisher,
+                g.base_price
+            FROM Game g
+            INNER JOIN AttributeText at_text ON g.game_id = at_text.game_id 
+                AND at_text.attribute_name = @attrName
+            WHERE 
+                at_text.attribute_value = ANY(STRING_TO_ARRAY(@attrValue, ','))
+            ORDER BY g.title";
+        
+        string sqlQueryBetween = @"SELECT DISTINCT 
+                g.game_id,
+                g.title,
+                g.release_date,
+                g.developer,
+                g.publisher,
+                g.base_price
+            FROM Game g
+            INNER JOIN AttributeNumber at_num ON g.game_id = at_num.game_id 
+                AND at_num.attribute_name = @attrName
+            WHERE 
+                at_num.attribute_value BETWEEN CAST(@attrValue AS DECIMAL) AND CAST(@attrValue2 AS DECIMAL)
+            ORDER BY g.title";
+
+        string sqlQueryBefore = @"SELECT DISTINCT 
+                g.game_id,
+                g.title,
+                g.release_date,
+                g.developer,
+                g.publisher,
+                g.base_price
+            FROM Game g
+            INNER JOIN AttributeDate at_date ON g.game_id = at_date.game_id 
+                AND at_date.attribute_name = @attrName
+            WHERE 
+                at_date.attribute_value < CAST (@attrValue AS DATE)
+            ORDER BY g.title";
+
+        string sqlQueryAfter = @"SELECT DISTINCT 
+                g.game_id,
+                g.title,
+                g.release_date,
+                g.developer,
+                g.publisher,
+                g.base_price
+            FROM Game g
+            INNER JOIN AttributeDate at_date ON g.game_id = at_date.game_id 
+                AND at_date.attribute_name = @attrName
+            WHERE 
+                at_date.attribute_value > CAST (@attrValue AS DATE)
+            ORDER BY g.title";
+
+
         using (var conn = new NpgsqlConnection(connectionString))
         {
             conn.Open();
             string sqlQuery;
+            string symbolForOutput;
 
             if (searchType == "1")
                 {
-                sqlQuery = sqlQueryEquals;
-                    }
-            else {
-                sqlQuery = sqlQueryNotEquals;
-                    }
+                    sqlQuery = sqlQueryEquals;
+                    symbolForOutput = "=";
+                }
+            else if (searchType == "2")
+                {
+                    sqlQuery = sqlQueryNotEquals;
+                    symbolForOutput = "!=";
+                }
+            else if (searchType == "3")
+                {
+                    sqlQuery = sqlQueryGreaterThan;
+                    symbolForOutput = ">";
+                }
+            else if (searchType == "4")
+            {
+                    sqlQuery = sqlQueryLessThan;
+                    symbolForOutput = "<";
+                }
+            else if (searchType == "5")
+            {
+                sqlQuery = sqlQueryBetween;
+                symbolForOutput = " - ";
+            }
+            else if (searchType == "6")
+            {
+                sqlQuery = sqlQueryContains;
+                symbolForOutput = " contains";
+            }
+            else if (searchType == "7")
+            {
+                sqlQuery = sqlQueryIn;
+                symbolForOutput = " in ";
+            }
+            else if (searchType == "8")
+            {
+                sqlQuery = sqlQueryBefore;
+                symbolForOutput = " before ";
+            }
+            else 
+            {
+                sqlQuery = sqlQueryAfter;
+                symbolForOutput = " after ";
+            }
 
             using (var cmd = new NpgsqlCommand(sqlQuery, conn))
             {
                 cmd.Parameters.AddWithValue("@attrName", attributeName);
                 cmd.Parameters.AddWithValue("@attrValue", attributeValue);
+                cmd.Parameters.AddWithValue("@attrValue2", attributeValue2);
 
                 using (var reader = cmd.ExecuteReader())
                 {
@@ -370,8 +526,16 @@ class GameDatabaseSearch
 
                     if (dt.Rows.Count == 0)
                     {
-                        Console.WriteLine($"\nИгр с атрибутом '{attributeName}' = '{attributeValue}' не найдено.");
-                        return;
+                        if (searchType == "5")
+                        {
+                            Console.WriteLine($"\nИгр с атрибутом '{attributeName}' '{attributeValue}' '{symbolForOutput}' '{attributeValue2}' не найдено.");
+                            return;
+                        }
+                        else
+                        {
+                            Console.WriteLine($"\nИгр с атрибутом '{attributeName}' '{symbolForOutput}' '{attributeValue}' не найдено.");
+                            return;
+                        }
                     }
 
                     Console.WriteLine($"\nНайдено игр: {dt.Rows.Count}");
