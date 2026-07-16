@@ -10,6 +10,10 @@ namespace SQLvsORM.Model
         public DbSet<AttributeBoolean> AttributeBooleans { get; set; }
         public DbSet<AttributeDate> AttributeDates { get; set; }
 
+        public GameDbContext(DbContextOptions<GameDbContext> options) : base(options)
+        {
+        }
+
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         {
             optionsBuilder.UseNpgsql("Host=localhost;Database=VGDatabase2;Username=postgres;Password=PikPok666");
