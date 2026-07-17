@@ -1,7 +1,7 @@
 ﻿using SQLvsORM.Services;
 using Microsoft.EntityFrameworkCore;
 using SQLvsORM.Model;
-
+using SQLvsORM.Tools;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -13,10 +13,10 @@ builder.Services.AddSwaggerGen(c =>
 });
 
 builder.Services.AddDbContext<GameDbContext>(options =>
-    options.UseNpgsql("Host=localhost;Database=VGDatabase2;Username=postgres;Password=PikPok666"));
+    options.UseNpgsql("Host=localhost;Database=VGDatabase2;Username=postgres;Password=PikPok666;Timeout=300;CommandTimeout=300"));
 
 builder.Services.AddScoped<SearchServiceSQL>(_ =>
-    new SearchServiceSQL("Host=localhost;Database=VGDatabase2;Username=postgres;Password=PikPok666"));
+    new SearchServiceSQL("Host=localhost;Database=VGDatabase2;Username=postgres;Password=PikPok666;Timeout=300;CommandTimeout=300"));
 
 builder.Services.AddScoped<SearchServiceEF>();
 

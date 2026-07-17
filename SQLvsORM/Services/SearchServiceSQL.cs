@@ -1,20 +1,9 @@
 ﻿using System.Data;
 using Npgsql;
+using SQLvsORM.Model;
+using SQLvsORM.Models;
 
 namespace SQLvsORM.Services;
-
-public enum SearchType
-{
-    Equals = 1,
-    NotEquals = 2,
-    GreaterThan = 3,
-    LessThan = 4,
-    Between = 5,
-    Contains = 6,
-    In = 7,
-    Before = 8,
-    After = 9
-}
 
 public class SearchServiceSQL
 {
@@ -25,24 +14,160 @@ public class SearchServiceSQL
         _connectionString = connectionString;
     }
 
-    public DataTable Search(string attributeName, string attributeValue, string attributeValue2, SearchType searchType)
+    public ServiceResult<List<GameDto>> Search(string attributeName, string attributeValue, string attributeValue2, SearchType searchType)
     {
-        string query = BuildQuery(searchType);
+        try
+        {
+            string query = BuildQuery(searchType);
 
+            using var conn = new NpgsqlConnection(_connectionString);
+            conn.Open();
+            using var cmd = new NpgsqlCommand(query, conn);
+
+            cmd.Parameters.AddWithValue("@attrName", attributeName);
+            cmd.Parameters.AddWithValue("@attrValue", attributeValue);
+
+            if (searchType == SearchType.Between)
+                cmd.Parameters.AddWithValue("@attrValue2", attributeValue2);
+
+            using var reader = cmd.ExecuteReader();
+            var dt = new DataTable();
+            dt.Load(reader);
+
+            var games = new List<GameDto>();
+            foreach (DataRow row in dt.Rows)
+            {
+                games.Add(new GameDto
+                {
+                    game_id = Convert.ToInt32(row["game_id"]),
+                    title = row["title"].ToString(),
+                    release_date = row["release_date"] is DBNull ? string.Empty : Convert.ToDateTime(row["release_date"]).ToString("yyyy-MM-dd"),
+                    developer = row["developer"].ToString(),
+                    publisher = row["publisher"].ToString(),
+                    base_price = row["base_price"] is DBNull ? 0 : Convert.ToDecimal(row["base_price"]),
+                    attribute_value = GetAttributeValue(row["game_id"].ToString(), attributeName)
+                });
+            }
+
+            return ServiceResult<List<GameDto>>.Success(games);
+        }
+        catch (Exception ex)
+        {
+            return ServiceResult<List<GameDto>>.Fail(ex.Message);
+        }
+    }
+
+    public ServiceResult<List<GameDto>> GetAllGames()
+    {
+        try
+        {
+            var query = "SELECT g.game_id, g.title, g.release_date, g.developer, g.publisher, g.base_price FROM Game g ORDER BY g.title";
+
+            using var conn = new NpgsqlConnection(_connectionString);
+            conn.Open();
+            using var cmd = new NpgsqlCommand(query, conn);
+            using var reader = cmd.ExecuteReader();
+            var dt = new DataTable();
+            dt.Load(reader);
+
+            var games = new List<GameDto>();
+            foreach (DataRow row in dt.Rows)
+            {
+                games.Add(new GameDto
+                {
+                    game_id = Convert.ToInt32(row["game_id"]),
+                    title = row["title"].ToString(),
+                    release_date = row["release_date"] is DBNull ? string.Empty : Convert.ToDateTime(row["release_date"]).ToString("yyyy-MM-dd"),
+                    developer = row["developer"].ToString(),
+                    publisher = row["publisher"].ToString(),
+                    base_price = row["base_price"] is DBNull ? 0 : Convert.ToDecimal(row["base_price"])
+                });
+            }
+
+            return ServiceResult<List<GameDto>>.Success(games);
+        }
+        catch (Exception ex)
+        {
+            return ServiceResult<List<GameDto>>.Fail(ex.Message);
+        }
+    }
+
+    public ServiceResult<GameDto> GetGameById(int id)
+    {
+        try
+        {
+            var query = "SELECT g.game_id, g.title, g.release_date, g.developer, g.publisher, g.base_price FROM Game g WHERE g.game_id = @id";
+
+            using var conn = new NpgsqlConnection(_connectionString);
+            conn.Open();
+            using var cmd = new NpgsqlCommand(query, conn);
+            cmd.Parameters.AddWithValue("@id", id);
+            using var reader = cmd.ExecuteReader();
+            var dt = new DataTable();
+            dt.Load(reader);
+
+            if (dt.Rows.Count == 0)
+                return ServiceResult<GameDto>.Fail($"Игра с ID {id} не найдена");
+
+            var row = dt.Rows[0];
+            var game = new GameDto
+            {
+                game_id = Convert.ToInt32(row["game_id"]),
+                title = row["title"].ToString(),
+                release_date = row["release_date"] is DBNull ? string.Empty : Convert.ToDateTime(row["release_date"]).ToString("yyyy-MM-dd"),
+                developer = row["developer"].ToString(),
+                publisher = row["publisher"].ToString(),
+                base_price = row["base_price"] is DBNull ? 0 : Convert.ToDecimal(row["base_price"])
+            };
+
+            return ServiceResult<GameDto>.Success(game);
+        }
+        catch (Exception ex)
+        {
+            return ServiceResult<GameDto>.Fail(ex.Message);
+        }
+    }
+
+    public Dictionary<string, List<string>> GetAllAttributes()
+    {
         using var conn = new NpgsqlConnection(_connectionString);
         conn.Open();
-        using var cmd = new NpgsqlCommand(query, conn);
 
-        cmd.Parameters.AddWithValue("@attrName", attributeName);
-        cmd.Parameters.AddWithValue("@attrValue", attributeValue);
+        return new Dictionary<string, List<string>>
+        {
+            ["text"] = GetDistinctAttributeNames(conn, "AttributeText"),
+            ["number"] = GetDistinctAttributeNames(conn, "AttributeNumber"),
+            ["boolean"] = GetDistinctAttributeNames(conn, "AttributeBoolean"),
+            ["date"] = GetDistinctAttributeNames(conn, "AttributeDate")
+        };
+    }
 
-        if (searchType == SearchType.Between)
-            cmd.Parameters.AddWithValue("@attrValue2", attributeValue2);
+    public string GetAttributeValue(string gameId, string attributeName)
+    {
+        try
+        {
+            string query = @"
+                SELECT attribute_value::TEXT FROM AttributeText WHERE game_id = @gameId AND attribute_name = @attrName
+                UNION ALL
+                SELECT attribute_value::TEXT FROM AttributeNumber WHERE game_id = @gameId AND attribute_name = @attrName
+                UNION ALL
+                SELECT attribute_value::TEXT FROM AttributeBoolean WHERE game_id = @gameId AND attribute_name = @attrName
+                UNION ALL
+                SELECT attribute_value::TEXT FROM AttributeDate WHERE game_id = @gameId AND attribute_name = @attrName
+                LIMIT 1";
 
-        using var reader = cmd.ExecuteReader();
-        var dt = new DataTable();
-        dt.Load(reader);
-        return dt;
+            using var conn = new NpgsqlConnection(_connectionString);
+            conn.Open();
+            using var cmd = new NpgsqlCommand(query, conn);
+            cmd.Parameters.AddWithValue("@gameId", int.Parse(gameId));
+            cmd.Parameters.AddWithValue("@attrName", attributeName);
+
+            return cmd.ExecuteScalar()?.ToString() ?? string.Empty;
+        }
+        catch
+        {
+            return string.Empty;
+        }
     }
 
     private static string BuildQuery(SearchType searchType)
@@ -79,6 +204,14 @@ public class SearchServiceSQL
                 INNER JOIN AttributeNumber at_num ON g.game_id = at_num.game_id AND at_num.attribute_name = @attrName
                 WHERE at_num.attribute_value < CAST(@attrValue AS DECIMAL)",
 
+            SearchType.GreaterOrEqual => @"
+                INNER JOIN AttributeNumber at_num ON g.game_id = at_num.game_id AND at_num.attribute_name = @attrName
+                WHERE at_num.attribute_value >= CAST(@attrValue AS DECIMAL)",
+
+            SearchType.LessOrEqual => @"
+                INNER JOIN AttributeNumber at_num ON g.game_id = at_num.game_id AND at_num.attribute_name = @attrName
+                WHERE at_num.attribute_value <= CAST(@attrValue AS DECIMAL)",
+
             SearchType.Between => @"
                 INNER JOIN AttributeNumber at_num ON g.game_id = at_num.game_id AND at_num.attribute_name = @attrName
                 WHERE at_num.attribute_value BETWEEN CAST(@attrValue AS DECIMAL) AND CAST(@attrValue2 AS DECIMAL)",
@@ -90,6 +223,10 @@ public class SearchServiceSQL
             SearchType.In => @"
                 INNER JOIN AttributeText at_text ON g.game_id = at_text.game_id AND at_text.attribute_name = @attrName
                 WHERE at_text.attribute_value = ANY(STRING_TO_ARRAY(@attrValue, ','))",
+
+            SearchType.NotIn => @"
+                INNER JOIN AttributeText at_text ON g.game_id = at_text.game_id AND at_text.attribute_name = @attrName
+                WHERE at_text.attribute_value != ALL(STRING_TO_ARRAY(@attrValue, ','))",
 
             SearchType.Before => @"
                 INNER JOIN AttributeDate at_date ON g.game_id = at_date.game_id AND at_date.attribute_name = @attrName
@@ -103,89 +240,6 @@ public class SearchServiceSQL
         };
 
         return $"{selectClause} {whereClause} ORDER BY g.title";
-    }
-
-    public List<Dictionary<string, object?>> GetAllGames()
-    {
-        var query = @"
-        SELECT g.game_id, g.title, g.release_date, g.developer, g.publisher, g.base_price
-        FROM Game g
-        ORDER BY g.title";
-
-        return ExecuteQuery(query, cmd => { });
-    }
-
-    public Dictionary<string, object?>? GetGameById(int id)
-    {
-        var query = @"
-        SELECT g.game_id, g.title, g.release_date, g.developer, g.publisher, g.base_price
-        FROM Game g
-        WHERE g.game_id = @id";
-
-        var games = ExecuteQuery(query, cmd => cmd.Parameters.AddWithValue("@id", id));
-        return games.FirstOrDefault();
-    }
-
-    public Dictionary<string, List<string>> GetAllAttributes()
-    {
-        using var conn = new NpgsqlConnection(_connectionString);
-        conn.Open();
-
-        var result = new Dictionary<string, List<string>>();
-
-        result["text"] = GetDistinctAttributeNames(conn, "AttributeText");
-        result["number"] = GetDistinctAttributeNames(conn, "AttributeNumber");
-        result["boolean"] = GetDistinctAttributeNames(conn, "AttributeBoolean");
-        result["date"] = GetDistinctAttributeNames(conn, "AttributeDate");
-
-        return result;
-    }
-
-    public string? GetAttributeValue(string gameId, string attributeName)
-    {
-        string query = @"
-        SELECT attribute_value::TEXT FROM AttributeText WHERE game_id = @gameId AND attribute_name = @attrName
-        UNION ALL
-        SELECT attribute_value::TEXT FROM AttributeNumber WHERE game_id = @gameId AND attribute_name = @attrName
-        UNION ALL
-        SELECT attribute_value::TEXT FROM AttributeBoolean WHERE game_id = @gameId AND attribute_name = @attrName
-        UNION ALL
-        SELECT attribute_value::TEXT FROM AttributeDate WHERE game_id = @gameId AND attribute_name = @attrName
-        LIMIT 1";
-
-        using var conn = new NpgsqlConnection(_connectionString);
-        conn.Open();
-        using var cmd = new NpgsqlCommand(query, conn);
-        cmd.Parameters.AddWithValue("@gameId", int.Parse(gameId));
-        cmd.Parameters.AddWithValue("@attrName", attributeName);
-
-        return cmd.ExecuteScalar()?.ToString();
-    }
-
-    private List<Dictionary<string, object?>> ExecuteQuery(string query, Action<NpgsqlCommand> addParameters)
-    {
-        var results = new List<Dictionary<string, object?>>();
-
-        using var conn = new NpgsqlConnection(_connectionString);
-        conn.Open();
-        using var cmd = new NpgsqlCommand(query, conn);
-        addParameters(cmd);
-
-        using var reader = cmd.ExecuteReader();
-        var dt = new DataTable();
-        dt.Load(reader);
-
-        foreach (DataRow row in dt.Rows)
-        {
-            var dict = new Dictionary<string, object?>();
-            foreach (DataColumn col in dt.Columns)
-            {
-                dict[col.ColumnName] = row[col] is DBNull ? null : row[col];
-            }
-            results.Add(dict);
-        }
-
-        return results;
     }
 
     private List<string> GetDistinctAttributeNames(NpgsqlConnection conn, string tableName)
