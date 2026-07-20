@@ -1,20 +1,8 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using SQLvsORM.Model;
+using SQLvsORM.Models;
 
 namespace SQLvsORM.Services;
-
-public enum SearchTypeEF
-{
-    Equals = 1,
-    NotEquals = 2,
-    GreaterThan = 3,
-    LessThan = 4,
-    Between = 5,
-    Contains = 6,
-    In = 7,
-    Before = 8,
-    After = 9
-}
 
 public class SearchServiceEF
 {
@@ -24,172 +12,172 @@ public class SearchServiceEF
     {
         _context = context;
     }
-    /*
-     * Исправление
-    public class GameDto
-    {
-        public int game_id { get; set; }
-        public string title { get; set; }
-        public string? release_date { get; set; }
-        public string developer { get; set; }
-        public string publisher { get; set; }
-        public decimal? base_price { get; set; }
-        public string? attribute_value { get; set; }
-    }*/
 
-    public List<Dictionary<string, object?>> Search(string attributeName, string attributeValue, string attributeValue2, SearchTypeEF searchType)
+    public ServiceResult<List<GameDto>> Search(SearchQuery query)
     {
-        var result = new List<Game>();
+        if (string.IsNullOrWhiteSpace(query.AttributeName) && string.IsNullOrWhiteSpace(query.AttributeValue))
+            return GetAllGames();
 
-        switch (searchType)
+        if (!string.IsNullOrWhiteSpace(query.AttributeName) && string.IsNullOrWhiteSpace(query.AttributeValue))
+            return GetGamesWithAttribute(query.AttributeName);
+
+        return SearchByAttribute(query);
+    }
+
+    private ServiceResult<List<GameDto>> GetGamesWithAttribute(string attributeName)
+    {
+        try
         {
-            case SearchTypeEF.Equals:
-                result = _context.Games
-                    .Include(g => g.AttributeTexts)
-                    .Include(g => g.AttributeNumbers)
-                    .Include(g => g.AttributeBooleans)
-                    .Include(g => g.AttributeDates)
-                    .Where(g =>
-                        g.AttributeTexts.Any(a => a.attribute_name == attributeName && a.attribute_value == attributeValue) ||
-                        g.AttributeNumbers.Any(a => a.attribute_name == attributeName && a.attribute_value.ToString() == attributeValue) ||
-                        g.AttributeBooleans.Any(a => a.attribute_name == attributeName && a.attribute_value.ToString().ToLower() == attributeValue.ToLower()) ||
-                        g.AttributeDates.Any(a => a.attribute_name == attributeName && a.attribute_value.ToString() == attributeValue)
-                    )
-                    .OrderBy(g => g.title)
-                    .ToList();
-                break;
+            var tableType = FindAttributeTable(attributeName);
+            if (tableType == null)
+                return ServiceResult<List<GameDto>>.Fail($"Атрибут '{attributeName}' не найден");
 
-            case SearchTypeEF.NotEquals:
-                result = _context.Games
-                    .Include(g => g.AttributeTexts)
-                    .Include(g => g.AttributeNumbers)
-                    .Include(g => g.AttributeBooleans)
-                    .Include(g => g.AttributeDates)
-                    .Where(g =>
-                        g.AttributeTexts.Any(a => a.attribute_name == attributeName && a.attribute_value != attributeValue) ||
-                        g.AttributeNumbers.Any(a => a.attribute_name == attributeName && a.attribute_value.ToString() != attributeValue) ||
-                        g.AttributeBooleans.Any(a => a.attribute_name == attributeName && a.attribute_value.ToString().ToLower() != attributeValue.ToLower()) ||
-                        g.AttributeDates.Any(a => a.attribute_name == attributeName && a.attribute_value.ToString() != attributeValue)
-                    )
-                    .OrderBy(g => g.title)
-                    .ToList();
-                break;
+            var gameIds = GetGameIdsWithAttribute(tableType.Value, attributeName);
 
-            case SearchTypeEF.GreaterThan:
-                if (decimal.TryParse(attributeValue, out decimal greaterVal))
+            var games = _context.Games
+                .AsNoTracking()
+                .Where(g => gameIds.Contains(g.game_id))
+                .OrderBy(g => g.title)
+                .Select(g => new GameDto
                 {
-                    result = _context.Games
-                        .Where(g => g.AttributeNumbers.Any(a => a.attribute_name == attributeName && a.attribute_value > greaterVal))
-                        .OrderBy(g => g.title)
-                        .ToList();
-                }
-                break;
+                    game_id = g.game_id,
+                    title = g.title
+                })
+                .ToList();
 
-            case SearchTypeEF.LessThan:
-                if (decimal.TryParse(attributeValue, out decimal lessVal))
-                {
-                    result = _context.Games
-                        .Where(g => g.AttributeNumbers.Any(a => a.attribute_name == attributeName && a.attribute_value < lessVal))
-                        .OrderBy(g => g.title)
-                        .ToList();
-                }
-                break;
+            var ids = games.Select(g => g.game_id).ToList();
+            var attrValues = GetAttributeValuesBatch(ids, attributeName, tableType.Value);
 
-            case SearchTypeEF.Between:
-                if (decimal.TryParse(attributeValue, out decimal minVal) && decimal.TryParse(attributeValue2, out decimal maxVal))
-                {
-                    result = _context.Games
-                        .Where(g => g.AttributeNumbers.Any(a => a.attribute_name == attributeName && a.attribute_value >= minVal && a.attribute_value <= maxVal))
-                        .OrderBy(g => g.title)
-                        .ToList();
-                }
-                break;
+            foreach (var game in games)
+                game.attribute_value = attrValues.GetValueOrDefault(game.game_id, string.Empty);
 
-            case SearchTypeEF.Contains:
-                result = _context.Games
-                    .Where(g => g.AttributeTexts.Any(a => a.attribute_name == attributeName && a.attribute_value.Contains(attributeValue)))
-                    .OrderBy(g => g.title)
-                    .ToList();
-                break;
-
-            case SearchTypeEF.In:
-                var values = attributeValue.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(v => v.Trim()).ToList();
-                result = _context.Games
-                    .Where(g => g.AttributeTexts.Any(a => a.attribute_name == attributeName && values.Contains(a.attribute_value)))
-                    .OrderBy(g => g.title)
-                    .ToList();
-                break;
-
-            case SearchTypeEF.Before:
-                if (DateTime.TryParse(attributeValue, out DateTime beforeDate))
-                {
-                    result = _context.Games
-                        .Where(g => g.AttributeDates.Any(a => a.attribute_name == attributeName && a.attribute_value < beforeDate))
-                        .OrderBy(g => g.title)
-                        .ToList();
-                }
-                break;
-
-            case SearchTypeEF.After:
-                if (DateTime.TryParse(attributeValue, out DateTime afterDate))
-                {
-                    result = _context.Games
-                        .Where(g => g.AttributeDates.Any(a => a.attribute_name == attributeName && a.attribute_value > afterDate))
-                        .OrderBy(g => g.title)
-                        .ToList();
-                }
-                break;
+            return ServiceResult<List<GameDto>>.Success(games);
         }
-
-        return result.Select(g => new Dictionary<string, object?>
+        catch (Exception ex)
         {
-            ["game_id"] = g.game_id,
-            ["title"] = g.title,
-            ["release_date"] = g.release_date,
-            ["developer"] = g.developer,
-            ["publisher"] = g.publisher,
-            ["base_price"] = g.base_price
-        }).ToList();
+            return ServiceResult<List<GameDto>>.Fail(ex.Message);
+        }
     }
 
-    public List<Dictionary<string, object?>> GetAllGames()
+    private ServiceResult<List<GameDto>> SearchByAttribute(SearchQuery query)
     {
-        return _context.Games
-            .OrderBy(g => g.title)
-            .Select(g => new
-            {
-                g.game_id,
-                g.title,
-                g.release_date,
-                g.developer,
-                g.publisher,
-                g.base_price
-            })
-            .AsEnumerable()
-            .Select(g => new Dictionary<string, object?>
-            {
-                ["game_id"] = g.game_id,
-                ["title"] = g.title,
-                ["release_date"] = g.release_date,
-                ["developer"] = g.developer,
-                ["publisher"] = g.publisher,
-                ["base_price"] = g.base_price
-            }).ToList();
+        try
+        {
+            var tableType = FindAttributeTable(query.AttributeName);
+            if (tableType == null)
+                return ServiceResult<List<GameDto>>.Fail($"Атрибут '{query.AttributeName}' не найден");
+
+            var gameIds = GetGameIdsBySearch(tableType.Value, query);
+
+            var games = _context.Games
+                .AsNoTracking()
+                .Where(g => gameIds.Contains(g.game_id))
+                .OrderBy(g => g.title)
+                .Select(g => new GameDto
+                {
+                    game_id = g.game_id,
+                    title = g.title
+                })
+                .ToList();
+
+            var ids = games.Select(g => g.game_id).ToList();
+            var attrValues = GetAttributeValuesBatch(ids, query.AttributeName, tableType.Value);
+
+            foreach (var game in games)
+                game.attribute_value = attrValues.GetValueOrDefault(game.game_id, string.Empty);
+
+            return ServiceResult<List<GameDto>>.Success(games);
+        }
+        catch (Exception ex)
+        {
+            return ServiceResult<List<GameDto>>.Fail(ex.Message);
+        }
     }
 
-    public Dictionary<string, object?>? GetGameById(int id)
+    public ServiceResult<List<GameDto>> GetAllGames()
     {
-        var game = _context.Games.FirstOrDefault(g => g.game_id == id);
-        if (game == null) return null;
-
-        return new Dictionary<string, object?>
+        try
         {
-            ["game_id"] = game.game_id,
-            ["title"] = game.title,
-            ["release_date"] = game.release_date,
-            ["developer"] = game.developer,
-            ["publisher"] = game.publisher,
-            ["base_price"] = game.base_price
+            var games = _context.Games
+                .AsNoTracking()
+                .OrderBy(g => g.title)
+                .Select(g => new GameDto
+                {
+                    game_id = g.game_id,
+                    title = g.title,
+                    release_date = g.release_date.HasValue ? g.release_date.Value.ToString("yyyy-MM-dd") : string.Empty,
+                    developer = g.developer ?? string.Empty,
+                    publisher = g.publisher ?? string.Empty,
+                    base_price = g.base_price ?? 0
+                })
+                .ToList();
+
+            return ServiceResult<List<GameDto>>.Success(games);
+        }
+        catch (Exception ex)
+        {
+            return ServiceResult<List<GameDto>>.Fail(ex.Message);
+        }
+    }
+
+    public ServiceResult<GameDto> GetGameById(int id)
+    {
+        try
+        {
+            var game = _context.Games
+                .AsNoTracking()
+                .Where(g => g.game_id == id)
+                .Select(g => new GameDto
+                {
+                    game_id = g.game_id,
+                    title = g.title,
+                    release_date = g.release_date.HasValue ? g.release_date.Value.ToString("yyyy-MM-dd") : string.Empty,
+                    developer = g.developer ?? string.Empty,
+                    publisher = g.publisher ?? string.Empty,
+                    base_price = g.base_price ?? 0
+                })
+                .FirstOrDefault();
+
+            if (game == null)
+                return ServiceResult<GameDto>.Fail($"Игра с ID {id} не найдена");
+
+            return ServiceResult<GameDto>.Success(game);
+        }
+        catch (Exception ex)
+        {
+            return ServiceResult<GameDto>.Fail(ex.Message);
+        }
+    }
+
+    public string GetAttributeValue(string gameId, string attributeName)
+    {
+        int id = int.Parse(gameId);
+        var tableType = FindAttributeTable(attributeName);
+        if (tableType == null) return string.Empty;
+
+        return tableType switch
+        {
+            AttributeTableType.Text => _context.AttributeTexts
+                .AsNoTracking()
+                .Where(a => a.game_id == id && a.attribute_name == attributeName)
+                .Select(a => a.attribute_value)
+                .FirstOrDefault() ?? string.Empty,
+            AttributeTableType.Number => _context.AttributeNumbers
+                .AsNoTracking()
+                .Where(a => a.game_id == id && a.attribute_name == attributeName)
+                .Select(a => a.attribute_value.ToString())
+                .FirstOrDefault() ?? string.Empty,
+            AttributeTableType.Boolean => _context.AttributeBooleans
+                .AsNoTracking()
+                .Where(a => a.game_id == id && a.attribute_name == attributeName)
+                .Select(a => a.attribute_value.ToString())
+                .FirstOrDefault() ?? string.Empty,
+            AttributeTableType.Date => _context.AttributeDates
+                .AsNoTracking()
+                .Where(a => a.game_id == id && a.attribute_name == attributeName)
+                .Select(a => a.attribute_value.ToString("yyyy-MM-dd"))
+                .FirstOrDefault() ?? string.Empty,
+            _ => string.Empty
         };
     }
 
@@ -197,27 +185,161 @@ public class SearchServiceEF
     {
         return new Dictionary<string, List<string>>
         {
-            ["text"] = _context.AttributeTexts.Select(a => a.attribute_name).Distinct().OrderBy(n => n).ToList(),
-            ["number"] = _context.AttributeNumbers.Select(a => a.attribute_name).Distinct().OrderBy(n => n).ToList(),
-            ["boolean"] = _context.AttributeBooleans.Select(a => a.attribute_name).Distinct().OrderBy(n => n).ToList(),
-            ["date"] = _context.AttributeDates.Select(a => a.attribute_name).Distinct().OrderBy(n => n).ToList()
+            ["text"] = _context.AttributeTexts.AsNoTracking().Select(a => a.attribute_name).Distinct().OrderBy(n => n).ToList(),
+            ["number"] = _context.AttributeNumbers.AsNoTracking().Select(a => a.attribute_name).Distinct().OrderBy(n => n).ToList(),
+            ["boolean"] = _context.AttributeBooleans.AsNoTracking().Select(a => a.attribute_name).Distinct().OrderBy(n => n).ToList(),
+            ["date"] = _context.AttributeDates.AsNoTracking().Select(a => a.attribute_name).Distinct().OrderBy(n => n).ToList()
         };
     }
 
-    public string? GetAttributeValue(int gameId, string attributeName)
+    private enum AttributeTableType { Text, Number, Boolean, Date }
+
+    private AttributeTableType? FindAttributeTable(string attributeName)
     {
-        var game = _context.Games
-            .Include(g => g.AttributeTexts)
-            .Include(g => g.AttributeNumbers)
-            .Include(g => g.AttributeBooleans)
-            .Include(g => g.AttributeDates)
-            .FirstOrDefault(g => g.game_id == gameId);
+        if (_context.AttributeTexts.AsNoTracking().Any(a => a.attribute_name == attributeName))
+            return AttributeTableType.Text;
+        if (_context.AttributeNumbers.AsNoTracking().Any(a => a.attribute_name == attributeName))
+            return AttributeTableType.Number;
+        if (_context.AttributeBooleans.AsNoTracking().Any(a => a.attribute_name == attributeName))
+            return AttributeTableType.Boolean;
+        if (_context.AttributeDates.AsNoTracking().Any(a => a.attribute_name == attributeName))
+            return AttributeTableType.Date;
+        return null;
+    }
 
-        if (game == null) return null;
+    private List<int> GetGameIdsWithAttribute(AttributeTableType tableType, string attributeName)
+    {
+        return tableType switch
+        {
+            AttributeTableType.Text => _context.AttributeTexts.AsNoTracking().Where(a => a.attribute_name == attributeName).Select(a => a.game_id).Distinct().ToList(),
+            AttributeTableType.Number => _context.AttributeNumbers.AsNoTracking().Where(a => a.attribute_name == attributeName).Select(a => a.game_id).Distinct().ToList(),
+            AttributeTableType.Boolean => _context.AttributeBooleans.AsNoTracking().Where(a => a.attribute_name == attributeName).Select(a => a.game_id).Distinct().ToList(),
+            AttributeTableType.Date => _context.AttributeDates.AsNoTracking().Where(a => a.attribute_name == attributeName).Select(a => a.game_id).Distinct().ToList(),
+            _ => new List<int>()
+        };
+    }
 
-        return game.AttributeTexts?.FirstOrDefault(a => a.attribute_name == attributeName)?.attribute_value
-            ?? game.AttributeNumbers?.FirstOrDefault(a => a.attribute_name == attributeName)?.attribute_value.ToString()
-            ?? game.AttributeBooleans?.FirstOrDefault(a => a.attribute_name == attributeName)?.attribute_value.ToString()
-            ?? game.AttributeDates?.FirstOrDefault(a => a.attribute_name == attributeName)?.attribute_value.ToString("yyyy-MM-dd");
+    private List<int> GetGameIdsBySearch(AttributeTableType tableType, SearchQuery query)
+    {
+        return tableType switch
+        {
+            AttributeTableType.Text => SearchText(query),
+            AttributeTableType.Number => SearchNumber(query),
+            AttributeTableType.Boolean => SearchBoolean(query),
+            AttributeTableType.Date => SearchDate(query),
+            _ => new List<int>()
+        };
+    }
+
+    private List<int> SearchText(SearchQuery query)
+    {
+        var value = query.AttributeValue ?? "";
+
+        if (query.SearchType == SearchType.In || query.SearchType == SearchType.NotIn)
+        {
+            var values = value.Split(',').Select(v => v.Trim()).ToList();
+
+            if (query.SearchType == SearchType.In)
+                return _context.AttributeTexts.AsNoTracking().Where(a => a.attribute_name == query.AttributeName && values.Contains(a.attribute_value)).Select(a => a.game_id).Distinct().ToList();
+            else
+                return _context.AttributeTexts.AsNoTracking().Where(a => a.attribute_name == query.AttributeName && !values.Contains(a.attribute_value)).Select(a => a.game_id).Distinct().ToList();
+        }
+
+        var q = _context.AttributeTexts.AsNoTracking().Where(a => a.attribute_name == query.AttributeName);
+
+        q = query.SearchType switch
+        {
+            SearchType.Equals => q.Where(a => a.attribute_value == value),
+            SearchType.NotEquals => q.Where(a => a.attribute_value != value),
+            SearchType.Contains => q.Where(a => a.attribute_value.Contains(value)),
+            _ => q
+        };
+
+        return q.Select(a => a.game_id).Distinct().ToList();
+    }
+
+    private List<int> SearchNumber(SearchQuery query)
+    {
+        var q = _context.AttributeNumbers.AsNoTracking().Where(a => a.attribute_name == query.AttributeName);
+        decimal val = decimal.TryParse(query.AttributeValue, out var v) ? v : 0;
+        decimal val2 = decimal.TryParse(query.AttributeValue2, out var v2) ? v2 : 0;
+
+        q = query.SearchType switch
+        {
+            SearchType.Equals => q.Where(a => a.attribute_value == val),
+            SearchType.NotEquals => q.Where(a => a.attribute_value != val),
+            SearchType.GreaterThan => q.Where(a => a.attribute_value > val),
+            SearchType.LessThan => q.Where(a => a.attribute_value < val),
+            SearchType.GreaterOrEqual => q.Where(a => a.attribute_value >= val),
+            SearchType.LessOrEqual => q.Where(a => a.attribute_value <= val),
+            SearchType.Between => q.Where(a => a.attribute_value >= val && a.attribute_value <= val2),
+            _ => q
+        };
+
+        return q.Select(a => a.game_id).Distinct().ToList();
+    }
+
+    private List<int> SearchBoolean(SearchQuery query)
+    {
+        var q = _context.AttributeBooleans.AsNoTracking().Where(a => a.attribute_name == query.AttributeName);
+        bool val = bool.TryParse(query.AttributeValue, out var b) && b;
+
+        q = query.SearchType switch
+        {
+            SearchType.Equals => q.Where(a => a.attribute_value == val),
+            SearchType.NotEquals => q.Where(a => a.attribute_value != val),
+            _ => q
+        };
+
+        return q.Select(a => a.game_id).Distinct().ToList();
+    }
+
+    private List<int> SearchDate(SearchQuery query)
+    {
+        var q = _context.AttributeDates.AsNoTracking().Where(a => a.attribute_name == query.AttributeName);
+        DateTime val = DateTime.TryParse(query.AttributeValue, out var d) ? d : DateTime.MinValue;
+        DateTime val2 = DateTime.TryParse(query.AttributeValue2, out var d2) ? d2 : DateTime.MinValue;
+
+        q = query.SearchType switch
+        {
+            SearchType.Equals => q.Where(a => a.attribute_value == val),
+            SearchType.NotEquals => q.Where(a => a.attribute_value != val),
+            SearchType.Before => q.Where(a => a.attribute_value < val),
+            SearchType.After => q.Where(a => a.attribute_value > val),
+            SearchType.Between => q.Where(a => a.attribute_value >= val && a.attribute_value <= val2),
+            _ => q
+        };
+
+        return q.Select(a => a.game_id).Distinct().ToList();
+    }
+
+    private Dictionary<int, string> GetAttributeValuesBatch(List<int> gameIds, string attributeName, AttributeTableType tableType)
+    {
+        if (gameIds.Count == 0) return new Dictionary<int, string>();
+
+        return tableType switch
+        {
+            AttributeTableType.Text => _context.AttributeTexts
+                .AsNoTracking()
+                .Where(a => gameIds.Contains(a.game_id) && a.attribute_name == attributeName)
+                .ToDictionary(a => a.game_id, a => a.attribute_value),
+
+            AttributeTableType.Number => _context.AttributeNumbers
+                .AsNoTracking()
+                .Where(a => gameIds.Contains(a.game_id) && a.attribute_name == attributeName)
+                .ToDictionary(a => a.game_id, a => a.attribute_value.ToString()),
+
+            AttributeTableType.Boolean => _context.AttributeBooleans
+                .AsNoTracking()
+                .Where(a => gameIds.Contains(a.game_id) && a.attribute_name == attributeName)
+                .ToDictionary(a => a.game_id, a => a.attribute_value.ToString()),
+
+            AttributeTableType.Date => _context.AttributeDates
+                .AsNoTracking()
+                .Where(a => gameIds.Contains(a.game_id) && a.attribute_name == attributeName)
+                .ToDictionary(a => a.game_id, a => a.attribute_value.ToString("yyyy-MM-dd")),
+
+            _ => new Dictionary<int, string>()
+        };
     }
 }

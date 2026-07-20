@@ -11,7 +11,7 @@ public enum SearchType
     Between = 7,
     Contains = 8,
     In = 9,
-    NotIn =10,
+    NotIn = 10,
     Before = 11,
     After = 12
 }

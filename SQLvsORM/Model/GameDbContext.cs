@@ -16,7 +16,7 @@ namespace SQLvsORM.Model
 
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         {
-            optionsBuilder.UseNpgsql("Host=localhost;Database=VGDatabase2;Username=postgres;Password=PikPok666");
+            optionsBuilder.UseNpgsql("Host=localhost;Database=VGDatabase3;Username=postgres;Password=PikPok666");
         }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
