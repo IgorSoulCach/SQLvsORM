@@ -8,9 +8,18 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="reports\**" />
+    <Content Remove="reports\**" />
+    <EmbeddedResource Remove="reports\**" />
+    <None Remove="reports\**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="ClosedXML" Version="0.105.0" />
     <PackageReference Include="ConsoleTables" Version="2.7.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="7.0.20" />
+    <PackageReference Include="NBomber" Version="6.5.0" />
+    <PackageReference Include="NBomber.Http" Version="6.2.1" />
     <PackageReference Include="Npgsql" Version="7.0.10" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="7.0.18" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="7.3.2" />

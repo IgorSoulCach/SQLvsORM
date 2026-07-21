@@ -1,5 +1,4 @@
-﻿using System.Data;
-using Npgsql;
+﻿using Npgsql;
 using SQLvsORM.Model;
 using SQLvsORM.Models;
 
@@ -34,7 +33,7 @@ public class SearchServiceSQL
                 return ServiceResult<List<GameDto>>.Fail($"Атрибут '{attributeName}' не найден");
 
             string sql = $@"
-                SELECT DISTINCT g.game_id, g.title
+                SELECT DISTINCT g.game_id, g.title, attr.attribute_value::TEXT
                 FROM Game g
                 INNER JOIN {tableName} attr ON g.game_id = attr.game_id AND attr.attribute_name = @attrName
                 ORDER BY g.title";
@@ -45,17 +44,14 @@ public class SearchServiceSQL
             cmd.Parameters.AddWithValue("@attrName", attributeName);
 
             using var reader = cmd.ExecuteReader();
-            var dt = new DataTable();
-            dt.Load(reader);
-
             var games = new List<GameDto>();
-            foreach (DataRow row in dt.Rows)
+            while (reader.Read())
             {
                 games.Add(new GameDto
                 {
-                    game_id = Convert.ToInt32(row["game_id"]),
-                    title = row["title"].ToString(),
-                    attribute_value = GetAttributeValue(row["game_id"].ToString(), attributeName)
+                    game_id = reader.GetInt32(0),
+                    title = reader.GetString(1),
+                    attribute_value = reader.IsDBNull(2) ? string.Empty : reader.GetString(2)
                 });
             }
 
@@ -86,17 +82,14 @@ public class SearchServiceSQL
                 cmd.Parameters.AddWithValue("@attrValue2", query.AttributeValue2 ?? "");
 
             using var reader = cmd.ExecuteReader();
-            var dt = new DataTable();
-            dt.Load(reader);
-
             var games = new List<GameDto>();
-            foreach (DataRow row in dt.Rows)
+            while (reader.Read())
             {
                 games.Add(new GameDto
                 {
-                    game_id = Convert.ToInt32(row["game_id"]),
-                    title = row["title"].ToString(),
-                    attribute_value = GetAttributeValue(row["game_id"].ToString(), query.AttributeName)
+                    game_id = reader.GetInt32(0),
+                    title = reader.GetString(1),
+                    attribute_value = reader.IsDBNull(2) ? string.Empty : reader.GetString(2)
                 });
             }
 
@@ -113,7 +106,7 @@ public class SearchServiceSQL
         using var conn = new NpgsqlConnection(_connectionString);
         conn.Open();
 
-        var tables = new[] { "AttributeText", "AttributeNumber", "AttributeBoolean", "AttributeDate" };
+        var tables = new[] { "attributetext", "attributenumber", "attributeboolean", "attributedate" };
         foreach (var table in tables)
         {
             using var cmd = new NpgsqlCommand($"SELECT COUNT(*) FROM {table} WHERE attribute_name = @name LIMIT 1", conn);
@@ -126,24 +119,24 @@ public class SearchServiceSQL
 
     private string BuildQuery(SearchQuery query, string tableName)
     {
-        string selectClause = "SELECT DISTINCT g.game_id, g.title FROM Game g";
+        string selectClause = "SELECT DISTINCT g.game_id, g.title, attr.attribute_value::TEXT FROM Game g";
         string joinClause = $"INNER JOIN {tableName} attr ON g.game_id = attr.game_id AND attr.attribute_name = @attrName";
 
         string whereClause = query.SearchType switch
         {
             SearchType.Equals => tableName switch
             {
-                "AttributeBoolean" => "attr.attribute_value = CAST(@attrValue AS BOOLEAN)",
-                "AttributeNumber" => "CAST(attr.attribute_value AS TEXT) = @attrValue",
-                "AttributeDate" => "CAST(attr.attribute_value AS TEXT) = @attrValue",
+                "attributeboolean" => "attr.attribute_value = CAST(@attrValue AS BOOLEAN)",
+                "attributenumber" => "CAST(attr.attribute_value AS TEXT) = @attrValue",
+                "attributedate" => "CAST(attr.attribute_value AS TEXT) = @attrValue",
                 _ => "attr.attribute_value = @attrValue"
             },
 
             SearchType.NotEquals => tableName switch
             {
-                "AttributeBoolean" => "attr.attribute_value != CAST(@attrValue AS BOOLEAN)",
-                "AttributeNumber" => "CAST(attr.attribute_value AS TEXT) != @attrValue",
-                "AttributeDate" => "CAST(attr.attribute_value AS TEXT) != @attrValue",
+                "attributeboolean" => "attr.attribute_value != CAST(@attrValue AS BOOLEAN)",
+                "attributenumber" => "CAST(attr.attribute_value AS TEXT) != @attrValue",
+                "attributedate" => "CAST(attr.attribute_value AS TEXT) != @attrValue",
                 _ => "attr.attribute_value != @attrValue"
             },
 
@@ -176,20 +169,18 @@ public class SearchServiceSQL
             conn.Open();
             using var cmd = new NpgsqlCommand(sql, conn);
             using var reader = cmd.ExecuteReader();
-            var dt = new DataTable();
-            dt.Load(reader);
 
             var games = new List<GameDto>();
-            foreach (DataRow row in dt.Rows)
+            while (reader.Read())
             {
                 games.Add(new GameDto
                 {
-                    game_id = Convert.ToInt32(row["game_id"]),
-                    title = row["title"].ToString(),
-                    release_date = row["release_date"] is DBNull ? string.Empty : Convert.ToDateTime(row["release_date"]).ToString("yyyy-MM-dd"),
-                    developer = row["developer"].ToString(),
-                    publisher = row["publisher"].ToString(),
-                    base_price = row["base_price"] is DBNull ? 0 : Convert.ToDecimal(row["base_price"])
+                    game_id = reader.GetInt32(0),
+                    title = reader.GetString(1),
+                    release_date = reader.IsDBNull(2) ? string.Empty : reader.GetDateTime(2).ToString("yyyy-MM-dd"),
+                    developer = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
+                    publisher = reader.IsDBNull(4) ? string.Empty : reader.GetString(4),
+                    base_price = reader.IsDBNull(5) ? 0 : reader.GetDecimal(5)
                 });
             }
 
@@ -212,21 +203,18 @@ public class SearchServiceSQL
             using var cmd = new NpgsqlCommand(sql, conn);
             cmd.Parameters.AddWithValue("@id", id);
             using var reader = cmd.ExecuteReader();
-            var dt = new DataTable();
-            dt.Load(reader);
 
-            if (dt.Rows.Count == 0)
+            if (!reader.Read())
                 return ServiceResult<GameDto>.Fail($"Игра с ID {id} не найдена");
 
-            var row = dt.Rows[0];
             var game = new GameDto
             {
-                game_id = Convert.ToInt32(row["game_id"]),
-                title = row["title"].ToString(),
-                release_date = row["release_date"] is DBNull ? string.Empty : Convert.ToDateTime(row["release_date"]).ToString("yyyy-MM-dd"),
-                developer = row["developer"].ToString(),
-                publisher = row["publisher"].ToString(),
-                base_price = row["base_price"] is DBNull ? 0 : Convert.ToDecimal(row["base_price"])
+                game_id = reader.GetInt32(0),
+                title = reader.GetString(1),
+                release_date = reader.IsDBNull(2) ? string.Empty : reader.GetDateTime(2).ToString("yyyy-MM-dd"),
+                developer = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
+                publisher = reader.IsDBNull(4) ? string.Empty : reader.GetString(4),
+                base_price = reader.IsDBNull(5) ? 0 : reader.GetDecimal(5)
             };
 
             return ServiceResult<GameDto>.Success(game);
@@ -260,10 +248,10 @@ public class SearchServiceSQL
 
         return new Dictionary<string, List<string>>
         {
-            ["text"] = GetDistinctAttributeNames(conn, "AttributeText"),
-            ["number"] = GetDistinctAttributeNames(conn, "AttributeNumber"),
-            ["boolean"] = GetDistinctAttributeNames(conn, "AttributeBoolean"),
-            ["date"] = GetDistinctAttributeNames(conn, "AttributeDate")
+            ["text"] = GetDistinctAttributeNames(conn, "attributetext"),
+            ["number"] = GetDistinctAttributeNames(conn, "attributenumber"),
+            ["boolean"] = GetDistinctAttributeNames(conn, "attributeboolean"),
+            ["date"] = GetDistinctAttributeNames(conn, "attributedate")
         };
     }
 
