@@ -1,5 +1,4 @@
 ﻿using Microsoft.AspNetCore.Mvc;
-using SQLvsORM.Model.DTOs;
 using SQLvsORM.Models;
 using SQLvsORM.Services;
 
@@ -21,21 +20,14 @@ public class GamesController : ControllerBase
     [HttpPost("search")]
     public IActionResult Search([FromBody] SearchQuery query)
     {
-        var result = _searchService.Search(query, query.Skip, query.Take);
+        var result = _searchService.Search(query);
         return result.IsSuccess ? Ok(result.Data) : BadRequest(result.Error);
     }
 
     [HttpPost("search-ef")]
     public IActionResult SearchEF([FromBody] SearchQuery query)
     {
-        var result = _searchServiceEF.Search(query, query.Skip, query.Take);
+        var result = _searchServiceEF.Search(query);
         return result.IsSuccess ? Ok(result.Data) : BadRequest(result.Error);
     }
-
-    [HttpGet("{id}")]
-    public IActionResult GetById(int id)
-    {
-        var result = _searchService.GetGameById(id);
-        return result.IsSuccess ? Ok(result.Data) : NotFound(result.Error);
-    }
-}   
+}
