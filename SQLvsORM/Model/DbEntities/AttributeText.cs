@@ -1,7 +1,7 @@
 ﻿using System.ComponentModel.DataAnnotations.Schema;
 
 
-namespace SQLvsORM.Model
+namespace SQLvsORM.Model.DbEntities
 {
     [Table("attributetext")]
     public class AttributeText

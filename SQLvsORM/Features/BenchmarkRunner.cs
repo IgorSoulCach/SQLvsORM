@@ -3,7 +3,7 @@ using System.Text.Json;
 using NBomber.CSharp;
 using NBomber.Http.CSharp;
 
-namespace SQLvsORM.Tools;
+namespace SQLvsORM.Features;
 
 public class NBomberBenchmark
 {

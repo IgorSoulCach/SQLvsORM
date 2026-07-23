@@ -1,6 +1,6 @@
-﻿namespace SQLvsORM.Models;
+﻿namespace SQLvsORM.Model.DTOs;
 
-public class GameDto 
+public class GameDto
 {
     public int game_id { get; set; }
     public string title { get; set; } = string.Empty;

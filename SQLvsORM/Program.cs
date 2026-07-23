@@ -1,15 +1,17 @@
 ﻿using SQLvsORM.Services;
 using Microsoft.EntityFrameworkCore;
 using SQLvsORM.Model;
-using SQLvsORM.Tools;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddControllers();
+builder.Services.AddControllers().AddJsonOptions(options =>
+{
+    options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
+});
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
-    c.SwaggerDoc("v1", new() { Title = "Game Database API", Version = "v0.1" });
+    c.SwaggerDoc("v1", new() { Title = "Game Database API", Version = "v0.2" });
 });
 
 builder.Services.AddDbContext<GameDbContext>(options =>
@@ -31,7 +33,7 @@ app.UseResponseCompression();
 app.UseSwagger();
 app.UseSwaggerUI(c =>
 {
-    c.SwaggerEndpoint("/swagger/v1/swagger.json", "Game Database API v0.1");
+    c.SwaggerEndpoint("/swagger/v1/swagger.json", "Game Database API v0.2");
     c.RoutePrefix = "swagger";
 });
 
@@ -44,11 +46,11 @@ app.UseSwaggerUI(config =>
 });
 
 app.MapControllers();
-Task.Run(async () =>
-{
-    await Task.Delay(3000); // Ждём пока API поднимется
-    var nbomber = new NBomberBenchmark("https://127.0.0.1:51798");
-    nbomber.Run();
-});
+//Task.Run(async () =>
+//{
+//    await Task.Delay(3000);
+//    var nbomber = new NBomberBenchmark("https://127.0.0.1:51798");
+//    nbomber.Run();
+//});
 
 app.Run();

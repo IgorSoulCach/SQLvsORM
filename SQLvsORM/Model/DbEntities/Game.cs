@@ -2,7 +2,7 @@
 using System.ComponentModel.DataAnnotations.Schema;
 
 
-namespace SQLvsORM.Model
+namespace SQLvsORM.Model.DbEntities
 {
     [Table("game")]
     public class Game

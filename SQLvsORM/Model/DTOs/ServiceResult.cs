@@ -1,4 +1,4 @@
-﻿namespace SQLvsORM.Model
+﻿namespace SQLvsORM.Model.DTOs
 {
     public class ServiceResult<T>
     {

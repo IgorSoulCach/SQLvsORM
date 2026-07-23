@@ -1,10 +1,10 @@
 ﻿using ClosedXML.Excel;
-using SQLvsORM.Model;
 using Microsoft.EntityFrameworkCore;
+using SQLvsORM.Model;
 
 namespace SQLvsORM.Services
 {
-    
+
     public class ExportService
     {
         private readonly GameDbContext _context;

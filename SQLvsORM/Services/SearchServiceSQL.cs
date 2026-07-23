@@ -1,5 +1,7 @@
-﻿using Npgsql;
-using SQLvsORM.Model;
+﻿using System.Data;
+using Npgsql;
+using SQLvsORM.Enums;
+using SQLvsORM.Model.DTOs;
 using SQLvsORM.Models;
 
 namespace SQLvsORM.Services;
@@ -13,18 +15,18 @@ public class SearchServiceSQL
         _connectionString = connectionString;
     }
 
-    public ServiceResult<List<GameDto>> Search(SearchQuery query)
+    public ServiceResult<List<GameDto>> Search(SearchQuery query, int skip = 0, int take = 100)
     {
         if (string.IsNullOrWhiteSpace(query.AttributeName) && string.IsNullOrWhiteSpace(query.AttributeValue))
-            return GetAllGames();
+            return GetAllGames(skip, take);
 
         if (!string.IsNullOrWhiteSpace(query.AttributeName) && string.IsNullOrWhiteSpace(query.AttributeValue))
-            return GetGamesWithAttribute(query.AttributeName);
+            return GetGamesWithAttribute(query.AttributeName, skip, take);
 
-        return SearchByAttribute(query);
+        return SearchByAttribute(query, skip, take);
     }
 
-    private ServiceResult<List<GameDto>> GetGamesWithAttribute(string attributeName)
+    private ServiceResult<List<GameDto>> GetGamesWithAttribute(string attributeName, int skip, int take)
     {
         try
         {
@@ -36,12 +38,15 @@ public class SearchServiceSQL
                 SELECT DISTINCT g.game_id, g.title, attr.attribute_value::TEXT
                 FROM Game g
                 INNER JOIN {tableName} attr ON g.game_id = attr.game_id AND attr.attribute_name = @attrName
-                ORDER BY g.title";
+                ORDER BY g.title
+                OFFSET @skip LIMIT @take";
 
             using var conn = new NpgsqlConnection(_connectionString);
             conn.Open();
             using var cmd = new NpgsqlCommand(sql, conn);
             cmd.Parameters.AddWithValue("@attrName", attributeName);
+            cmd.Parameters.AddWithValue("@skip", skip);
+            cmd.Parameters.AddWithValue("@take", take);
 
             using var reader = cmd.ExecuteReader();
             var games = new List<GameDto>();
@@ -63,7 +68,7 @@ public class SearchServiceSQL
         }
     }
 
-    private ServiceResult<List<GameDto>> SearchByAttribute(SearchQuery query)
+    private ServiceResult<List<GameDto>> SearchByAttribute(SearchQuery query, int skip, int take)
     {
         try
         {
@@ -71,7 +76,7 @@ public class SearchServiceSQL
             if (tableName == null)
                 return ServiceResult<List<GameDto>>.Fail($"Атрибут '{query.AttributeName}' не найден");
 
-            string sql = BuildQuery(query, tableName);
+            string sql = BuildQuery(query, tableName) + $" OFFSET {skip} LIMIT {take}";
 
             using var conn = new NpgsqlConnection(_connectionString);
             conn.Open();
@@ -140,18 +145,47 @@ public class SearchServiceSQL
                 _ => "attr.attribute_value != @attrValue"
             },
 
-            SearchType.GreaterThan => "attr.attribute_value > CAST(@attrValue AS DECIMAL)",
-            SearchType.LessThan => "attr.attribute_value < CAST(@attrValue AS DECIMAL)",
-            SearchType.GreaterOrEqual => "attr.attribute_value >= CAST(@attrValue AS DECIMAL)",
-            SearchType.LessOrEqual => "attr.attribute_value <= CAST(@attrValue AS DECIMAL)",
-            SearchType.Between => "attr.attribute_value BETWEEN CAST(@attrValue AS DECIMAL) AND CAST(@attrValue2 AS DECIMAL)",
+            SearchType.GreaterThan => tableName switch
+            {
+                "attributedate" => "attr.attribute_value > CAST(@attrValue AS DATE)",
+                _ => "attr.attribute_value > CAST(@attrValue AS DECIMAL)"
+            },
 
-            SearchType.Contains => "attr.attribute_value LIKE '%' || @attrValue || '%'",
-            SearchType.In => "attr.attribute_value = ANY(STRING_TO_ARRAY(@attrValue, ','))",
-            SearchType.NotIn => "attr.attribute_value != ALL(STRING_TO_ARRAY(@attrValue, ','))",
+            SearchType.LessThan => tableName switch
+            {
+                "attributedate" => "attr.attribute_value < CAST(@attrValue AS DATE)",
+                _ => "attr.attribute_value < CAST(@attrValue AS DECIMAL)"
+            },
 
-            SearchType.Before => "attr.attribute_value < CAST(@attrValue AS DATE)",
-            SearchType.After => "attr.attribute_value > CAST(@attrValue AS DATE)",
+            SearchType.GreaterOrEqual => tableName switch
+            {
+                "attributedate" => "attr.attribute_value >= CAST(@attrValue AS DATE)",
+                _ => "attr.attribute_value >= CAST(@attrValue AS DECIMAL)"
+            },
+
+            SearchType.LessOrEqual => tableName switch
+            {
+                "attributedate" => "attr.attribute_value <= CAST(@attrValue AS DATE)",
+                _ => "attr.attribute_value <= CAST(@attrValue AS DECIMAL)"
+            },
+
+            SearchType.Between => tableName switch
+            {
+                "attributedate" => "attr.attribute_value BETWEEN CAST(@attrValue AS DATE) AND CAST(@attrValue2 AS DATE)",
+                _ => "attr.attribute_value BETWEEN CAST(@attrValue AS DECIMAL) AND CAST(@attrValue2 AS DECIMAL)"
+            },
+
+            SearchType.Contains => tableName switch
+            {
+                "attributetext" => "attr.attribute_value = ANY(STRING_TO_ARRAY(@attrValue, ',')) OR attr.attribute_value LIKE '%' || @attrValue || '%'",
+                _ => "CAST(attr.attribute_value AS TEXT) = ANY(STRING_TO_ARRAY(@attrValue, ',')) OR CAST(attr.attribute_value AS TEXT) LIKE '%' || @attrValue || '%'"
+            },
+
+            SearchType.NotContains => tableName switch
+            {
+                "attributetext" => "attr.attribute_value != ALL(STRING_TO_ARRAY(@attrValue, ',')) AND attr.attribute_value NOT LIKE '%' || @attrValue || '%'",
+                _ => "CAST(attr.attribute_value AS TEXT) != ALL(STRING_TO_ARRAY(@attrValue, ',')) AND CAST(attr.attribute_value AS TEXT) NOT LIKE '%' || @attrValue || '%'"
+            },
 
             _ => throw new ArgumentException("Неизвестный тип поиска")
         };
@@ -159,15 +193,17 @@ public class SearchServiceSQL
         return $"{selectClause} {joinClause} WHERE {whereClause} ORDER BY g.title";
     }
 
-    public ServiceResult<List<GameDto>> GetAllGames()
+    public ServiceResult<List<GameDto>> GetAllGames(int skip = 0, int take = 100)
     {
         try
         {
-            var sql = "SELECT g.game_id, g.title, g.release_date, g.developer, g.publisher, g.base_price FROM Game g ORDER BY g.title";
+            var sql = "SELECT g.game_id, g.title, g.release_date, g.developer, g.publisher, g.base_price FROM Game g ORDER BY g.title OFFSET @skip LIMIT @take";
 
             using var conn = new NpgsqlConnection(_connectionString);
             conn.Open();
             using var cmd = new NpgsqlCommand(sql, conn);
+            cmd.Parameters.AddWithValue("@skip", skip);
+            cmd.Parameters.AddWithValue("@take", take);
             using var reader = cmd.ExecuteReader();
 
             var games = new List<GameDto>();

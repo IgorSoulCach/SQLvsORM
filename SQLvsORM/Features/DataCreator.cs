@@ -1,7 +1,7 @@
 ﻿using System.Data;
 using Npgsql;
 
-namespace SQLvsORM.Tools;
+namespace SQLvsORM.Features;
 
 public class DataCreator
 {

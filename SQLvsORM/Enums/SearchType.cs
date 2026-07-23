@@ -1,4 +1,4 @@
-﻿namespace SQLvsORM.Services;
+﻿namespace SQLvsORM.Enums;
 
 public enum SearchType
 {
@@ -10,8 +10,5 @@ public enum SearchType
     LessOrEqual = 6,
     Between = 7,
     Contains = 8,
-    In = 9,
-    NotIn = 10,
-    Before = 11,
-    After = 12
+    NotContains = 9
 }
